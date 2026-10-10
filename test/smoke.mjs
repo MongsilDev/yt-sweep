@@ -21,6 +21,11 @@ assert.equal(classify({ aiHit: 0, links: 1, desc: '무단 전재, AI 학습 및 
 assert.equal(classify({ aiHit: 0, links: 1, desc: '사연은 일부 각색될 수 있습니다', recent: [] }, NOW).why.includes('AI 고지'), false);
 // 1시간짜리를 하루 세 개씩 올리는 신생 채널
 assert.equal(classify({ aiHit: 0, links: 0, joinedAt: days(60), videos: 180, subs: 5000, desc: '', recent: recent(30, 0.3, 80) }, NOW).target, true);
+// 가입 5개월에 쇼츠 120개인 클립 양산 채널은 긴 영상이 없어도 대상
+assert.equal(classify({ aiHit: 0, links: 1, joinedAt: days(150), videos: 120, subs: 3000, desc: '', recent: [] }, NOW).target, true);
+// 막 시작해 영상이 적은 채널과 몇 년째 꾸준히 올리는 채널은 대상 아님
+assert.equal(classify({ aiHit: 0, links: 1, joinedAt: days(10), videos: 8, subs: 0, desc: '', recent: [] }, NOW).target, false);
+assert.equal(classify({ aiHit: 0, links: 2, joinedAt: days(1500), videos: 400, subs: 20000, desc: '', recent: [] }, NOW).target, false);
 // 같은 속도라도 오래된 대형 채널은 속도 점수 없음
 const broadcaster = classify({ aiHit: 0, links: 6, joinedAt: days(4000), videos: 90000, subs: 4e6, desc: '', recent: recent(30, 0.05, 40) }, NOW);
 assert.equal(broadcaster.target, false);

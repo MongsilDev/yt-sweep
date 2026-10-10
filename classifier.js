@@ -36,7 +36,12 @@
       else if (rate >= 5) add(2, '초다작');
     }
 
-    if (ageDays != null && ageDays < 180 && ch.videos >= 30) add(2, '신생 다작');
+    // 클립을 잘라 자막 템플릿으로 찍어내는 채널. 가입 직후부터 하루 한두 개씩 쌓임
+    const lifeRate = ageDays ? (ch.videos || 0) / Math.max(ageDays, 1) : 0;
+    if (!established && ageDays != null) {
+      if (ageDays < 365 && ch.videos >= 30 && lifeRate >= 0.5) add(6, '신생 양산');
+      else if (ageDays < 730 && ch.videos >= 100 && lifeRate >= 1) add(6, '양산');
+    }
     if (RX.autoHandle.test(ch.handle || '')) add(1, '자동 핸들');
     if (!ch.links) add(1, '링크 없음');
     const titles = (ch.recent || []).map((v) => v.title || '');
