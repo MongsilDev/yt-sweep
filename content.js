@@ -1,0 +1,420 @@
+// 유튜브 페이지 MAIN world에서 실행. 카드 데이터는 Polymer data와 rawProps에서 읽음
+(() => {
+  'use strict';
+  if (window.__ytSweepLoaded) return;
+  window.__ytSweepLoaded = true;
+
+  const { classify, parse: P } = window.__ytSweep;
+  const KEY = 'yt-sweep-v1';
+  const DEFAULTS = {
+    mode: 'dry',          // dry 표시만, hide 숨김, act 숨김과 추천 안함 전송
+    allow: [],            // 채널 ID 허용 목록
+    sent: [],             // 추천 안함을 보낸 채널 기록
+    cache: {},            // 채널 ID별 판정
+    day: '', dayCount: 0,
+    dailyCap: 200,
+  };
+  const CACHE_MS = 14 * 864e5;
+  const CACHE_MAX = 3000;
+  const SENT_MAX = 500;
+  const LOOKUP_GAP_MS = 800;
+  const SEND_GAP_MS = 5000;
+  const VIDEOS_TAB = 'EgZ2aWRlb3PyBgQKAjoA';
+  const SHORTS_TAB = 'EgZzaG9ydHPyBgUKA5oBAA%3D%3D';
+  const CARD_SELECTOR = 'ytd-rich-item-renderer, yt-lockup-view-model, ytd-video-renderer, ytd-compact-video-renderer, ytm-shorts-lockup-view-model, ytm-shorts-lockup-view-model-v2';
+
+  const loadConfig = () => {
+    try { return Object.assign({}, DEFAULTS, JSON.parse(localStorage.getItem(KEY) || '{}')); }
+    catch { return { ...DEFAULTS }; }
+  };
+  const cfg = loadConfig();
+  const save = () => {
+    const ids = Object.keys(cfg.cache);
+    if (ids.length > CACHE_MAX) {
+      ids.sort((a, b) => cfg.cache[a].at - cfg.cache[b].at).slice(0, ids.length - CACHE_MAX).forEach((id) => delete cfg.cache[id]);
+    }
+    localStorage.setItem(KEY, JSON.stringify(cfg));
+  };
+  window.addEventListener('storage', (event) => { if (event.key === KEY) Object.assign(cfg, loadConfig()); });
+
+  // innertube 요청. 로그인 요청은 SAPISIDHASH 인증이 있어야 추천 안함 메뉴가 옴
+  const yc = () => (window.ytcfg && window.ytcfg.data_) || {};
+  async function authHeader() {
+    const sapisid = (document.cookie.match(/(?:^|; )(?:SAPISID|__Secure-3PAPISID)=([^;]+)/) || [])[1];
+    if (!sapisid) return null;
+    const ts = Math.floor(Date.now() / 1000);
+    const buf = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(`${ts} ${sapisid} ${location.origin}`));
+    return `SAPISIDHASH ${ts}_${[...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('')}`;
+  }
+  async function api(path, body) {
+    const c = yc();
+    const headers = {
+      'content-type': 'application/json',
+      'x-origin': location.origin,
+      'x-goog-authuser': String(c.SESSION_INDEX ?? 0),
+      'x-youtube-client-name': '1',
+      'x-youtube-client-version': c.INNERTUBE_CLIENT_VERSION,
+    };
+    const auth = await authHeader();
+    if (auth) headers.authorization = auth;
+    const res = await fetch(`/youtubei/v1/${path}?prettyPrint=false`, {
+      method: 'POST', credentials: 'include', headers, body: JSON.stringify({ context: c.INNERTUBE_CONTEXT, ...body }),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+  }
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // 카드와 영상 정보
+  const videos = new Map();     // videoId별 { channelId, channelName, title, isShort, notInterested, dontRecommend }
+  const channels = new Map();   // channelId별 { name, videoIds:Set }
+  const pendingVideo = new Set();
+  const pendingChannel = new Set();
+  const lookupQueue = [];       // { kind: 'video'|'channel', id }
+  let lastError = '';
+
+  function elementData(el) {
+    const raw = el.rawProps && el.rawProps.data;
+    if (raw) return typeof raw === 'function' ? raw() : raw;
+    return el.data || (el.__data && el.__data.data) || null;
+  }
+
+  function remember(info) {
+    const prev = videos.get(info.videoId) || {};
+    const merged = { ...prev };
+    for (const [k, v] of Object.entries(info)) if (v != null && v !== '') merged[k] = v;
+    videos.set(info.videoId, merged);
+    if (merged.channelId) {
+      const ch = channels.get(merged.channelId) || { name: '', videoIds: new Set() };
+      if (merged.channelName) ch.name = merged.channelName;
+      ch.videoIds.add(info.videoId);
+      channels.set(merged.channelId, ch);
+    }
+    return merged;
+  }
+
+  function scan() {
+    for (const el of document.querySelectorAll(CARD_SELECTOR)) {
+      // 홈 카드는 rich-item 쪽에서 한 번만 처리
+      if (el.tagName !== 'YTD-RICH-ITEM-RENDERER' && el.closest('ytd-rich-item-renderer')) continue;
+      let info;
+      try { info = P.cardInfo(elementData(el)); } catch { info = null; }
+      if (!info) continue;
+      if (el.dataset.ysVid !== info.videoId) { el.dataset.ysVid = info.videoId; clearMark(el); }
+      const v = remember(info);
+      if (!v.channelId) { want('video', info.videoId); continue; }
+      want('channel', v.channelId);
+      apply(el, v);
+    }
+    checkShortsPlayer();
+  }
+
+  function want(kind, id) {
+    const pending = kind === 'video' ? pendingVideo : pendingChannel;
+    if (pending.has(id)) return;
+    if (kind === 'channel' && verdictOf(id)) return;
+    pending.add(id);
+    lookupQueue.push({ kind, id });
+  }
+
+  const verdictOf = (channelId) => {
+    const c = cfg.cache[channelId];
+    return c && Date.now() - c.at < CACHE_MS ? c : null;
+  };
+
+  // 채널 판정에 쓰는 요청 4~5번. 채널마다 한 번만 하고 결과를 저장
+  async function lookupChannel(id) {
+    const page = P.channelPage(await api('browse', { browseId: id, params: VIDEOS_TAB }));
+    await sleep(LOOKUP_GAP_MS);
+    let about = null;
+    if (page.aboutToken) {
+      about = P.channelAbout(await api('browse', { continuation: page.aboutToken }));
+      await sleep(LOOKUP_GAP_MS);
+    }
+    let sample = page.recent.slice(0, 2).map((v) => v.videoId);
+    if (!sample.length) {
+      sample = P.shortsIds(await api('browse', { browseId: id, params: SHORTS_TAB })).slice(0, 2);
+      await sleep(LOOKUP_GAP_MS);
+    }
+    let aiHit = 0;
+    for (const videoId of sample) {
+      if (P.aiLabeled(await api('next', { videoId }))) aiHit++;
+      await sleep(LOOKUP_GAP_MS);
+    }
+    const ch = { ...(about || {}), subscribed: page.subscribed, recent: page.recent, aiHit, aiChecked: sample.length };
+    const result = classify(ch, Date.now());
+    const known = channels.get(id);
+    cfg.cache[id] = {
+      at: Date.now(), score: result.score, why: result.why, target: result.target,
+      name: (known && known.name) || ch.handle || id, handle: ch.handle || '',
+    };
+    save();
+  }
+
+  async function lookupVideo(videoId) {
+    const info = P.reelInfo(await api('reel/reel_item_watch', { playerRequest: { videoId }, disablePlayerResponse: true }));
+    if (info && info.channelId) {
+      remember({ videoId, ...info });
+      want('channel', info.channelId);
+    }
+  }
+
+  let lookupBusy = false;
+  async function lookupLoop() {
+    if (lookupBusy) return;
+    lookupBusy = true;
+    try {
+      while (lookupQueue.length) {
+        const job = lookupQueue.shift();
+        try {
+          if (job.kind === 'video') await lookupVideo(job.id);
+          else await lookupChannel(job.id);
+          lastError = '';
+        } catch (e) {
+          lastError = `조회 실패: ${e.message}. 1분 뒤 다시 시도합니다.`;
+          lookupQueue.unshift(job);
+          renderSoon();
+          await sleep(60000);
+          continue;
+        } finally {
+          (job.kind === 'video' ? pendingVideo : pendingChannel).delete(job.id);
+        }
+        await sleep(LOOKUP_GAP_MS);
+        scan();
+        renderSoon();
+      }
+    } finally {
+      lookupBusy = false;
+    }
+  }
+
+  // 카드 표시와 숨김
+  function clearMark(el) {
+    delete el.dataset.ys;
+    const old = el.querySelector(':scope > .ys-badge');
+    if (old) old.remove();
+  }
+
+  function apply(el, v) {
+    const verdict = verdictOf(v.channelId);
+    if (!verdict || !verdict.target || cfg.allow.includes(v.channelId)) { clearMark(el); return; }
+    if (cfg.mode === 'dry') {
+      if (el.dataset.ys !== 'mark') {
+        clearMark(el);
+        el.dataset.ys = 'mark';
+        const badge = el_('div', { className: 'ys-badge', textContent: `AI 채널 ${verdict.score}점: ${verdict.why.join(', ')}` });
+        badge.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); });
+        el.prepend(badge);
+      }
+      return;
+    }
+    if (el.dataset.ys !== 'hide') { clearMark(el); el.dataset.ys = 'hide'; }
+    if (cfg.mode === 'act') queueSend(v.channelId);
+  }
+
+  // 쇼츠 플레이어는 주소의 영상 ID로 판정
+  let shortsSkipped = '';
+  function checkShortsPlayer() {
+    const m = location.pathname.match(/^\/shorts\/([\w-]{11})/);
+    if (!m) return;
+    const videoId = m[1];
+    const v = videos.get(videoId);
+    if (!v || !v.channelId) { want('video', videoId); return; }
+    want('channel', v.channelId);
+    const verdict = verdictOf(v.channelId);
+    if (!verdict || !verdict.target || cfg.allow.includes(v.channelId) || cfg.mode === 'dry') return;
+    if (cfg.mode === 'act') queueSend(v.channelId);
+    if (shortsSkipped !== videoId) {
+      shortsSkipped = videoId;
+      const next = document.querySelector('#navigation-button-down button, button[aria-label="다음 동영상"]');
+      if (next) next.click();
+    }
+  }
+
+  // 추천 안함 전송
+  const sendQueue = [];
+  const sentIds = () => new Set(cfg.sent.map((s) => s.id));
+  const today = () => new Date().toISOString().slice(0, 10);
+
+  function queueSend(channelId) {
+    if (sentIds().has(channelId) || sendQueue.includes(channelId)) return;
+    sendQueue.push(channelId);
+    sendLoop();
+  }
+
+  // 채널의 아무 카드에서나 추천 안함 토큰을 찾음
+  function tokensFor(channelId) {
+    const ch = channels.get(channelId);
+    if (!ch) return null;
+    for (const id of ch.videoIds) {
+      const v = videos.get(id);
+      if (v && v.dontRecommend) return v;
+    }
+    return null;
+  }
+
+  let sendBusy = false;
+  async function sendLoop() {
+    if (sendBusy) return;
+    sendBusy = true;
+    try {
+      while (sendQueue.length) {
+        if (cfg.day !== today()) { cfg.day = today(); cfg.dayCount = 0; }
+        if (cfg.dayCount >= cfg.dailyCap) { lastError = `오늘 상한 ${cfg.dailyCap}개를 채워 내일 다시 보냅니다.`; break; }
+        const channelId = sendQueue[0];
+        const v = tokensFor(channelId);
+        if (!v) { sendQueue.shift(); continue; }
+        try {
+          const res = await api('feedback', { feedbackTokens: [v.dontRecommend.token], isFeedbackTokenUnencrypted: false, shouldMerge: false });
+          const ok = !!P.find(res, (x) => x.isProcessed === true);
+          if (!ok) throw new Error('처리되지 않음');
+          if (v.notInterested) {
+            await sleep(1000);
+            await api('feedback', { feedbackTokens: [v.notInterested.token], isFeedbackTokenUnencrypted: false, shouldMerge: false }).catch(() => {});
+          }
+          const verdict = cfg.cache[channelId] || {};
+          cfg.sent.unshift({ id: channelId, name: verdict.name || '', why: verdict.why || [], score: verdict.score || 0, undo: v.dontRecommend.undo, at: Date.now() });
+          cfg.sent.length = Math.min(cfg.sent.length, SENT_MAX);
+          cfg.dayCount++;
+          save();
+          lastError = '';
+        } catch (e) {
+          lastError = `추천 안함 실패: ${e.message}. 5분 뒤 다시 시도합니다.`;
+          renderSoon();
+          await sleep(300000);
+          continue;
+        }
+        sendQueue.shift();
+        renderSoon();
+        await sleep(SEND_GAP_MS);
+      }
+    } finally {
+      sendBusy = false;
+    }
+  }
+
+  async function undoSend(entry) {
+    if (!entry.undo) { lastError = '되돌리기 토큰이 없습니다. 유튜브 기록에서 직접 지워주세요.'; renderSoon(); return; }
+    try {
+      await api('feedback', { feedbackTokens: [entry.undo], isFeedbackTokenUnencrypted: false, shouldMerge: false });
+      cfg.sent = cfg.sent.filter((s) => s !== entry);
+      allow(entry.id);
+    } catch (e) {
+      lastError = `되돌리기 실패: ${e.message}`;
+      renderSoon();
+    }
+  }
+
+  function allow(channelId) {
+    if (!cfg.allow.includes(channelId)) cfg.allow.push(channelId);
+    save();
+    for (const el of document.querySelectorAll('[data-ys]')) clearMark(el);
+    scan();
+    renderSoon();
+  }
+
+  function unallow(channelId) {
+    cfg.allow = cfg.allow.filter((id) => id !== channelId);
+    save();
+    scan();
+    renderSoon();
+  }
+
+  // 패널
+  let panelOpen = false;
+  let root = null;
+  let renderTimer = null;
+  const renderSoon = () => { if (!renderTimer) renderTimer = setTimeout(() => { renderTimer = null; render(); }, 300); };
+
+  const CSS = `
+    [data-ys="hide"] { display: none !important; }
+    [data-ys="mark"] { position: relative; outline: 2px solid #f5a623; outline-offset: -2px; border-radius: 12px; }
+    .ys-badge { position: absolute; top: 6px; left: 6px; right: 6px; z-index: 5; padding: 3px 8px; border-radius: 6px;
+      background: rgba(0, 0, 0, 0.8); color: #f5a623; font: 12px/1.4 system-ui, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #ys-root { position: fixed; left: 12px; bottom: 12px; z-index: 9999; font: 13px/1.4 system-ui, sans-serif; color: #f1f1f1; }
+    #ys-root button { font: inherit; color: inherit; background: #272727; border: 1px solid #3f3f3f; border-radius: 6px; padding: 2px 8px; cursor: pointer; }
+    #ys-root button.on { background: #3ea6ff; border-color: #3ea6ff; color: #0f0f0f; }
+    #ys-pill { border-radius: 999px !important; padding: 6px 12px !important; background: #0f0f0f !important; }
+    #ys-panel { width: 360px; max-height: 60vh; overflow: auto; margin-bottom: 8px; padding: 12px; background: #0f0f0f; border: 1px solid #3f3f3f; border-radius: 12px; }
+    #ys-panel h4 { margin: 10px 0 4px; font-size: 12px; color: #aaa; font-weight: 600; }
+    #ys-panel .row { display: flex; gap: 6px; align-items: center; margin: 4px 0; flex-wrap: wrap; }
+    #ys-panel .title { justify-content: space-between; font-weight: 600; }
+    #ys-panel .item { display: flex; gap: 6px; align-items: baseline; padding: 3px 0; border-top: 1px solid #272727; }
+    #ys-panel .item span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #ys-panel a { color: #f1f1f1; font-weight: 600; text-decoration: none; }
+    #ys-panel a:hover { text-decoration: underline; }
+    #ys-panel .err { color: #ff4e45; }`;
+
+  const el_ = (tag, props = {}, children = []) => {
+    const node = Object.assign(document.createElement(tag), props);
+    for (const child of children) node.append(child);
+    return node;
+  };
+
+  function render() {
+    if (!document.body) return;
+    if (!root) {
+      document.head.append(el_('style', { textContent: CSS }));
+      root = el_('div', { id: 'ys-root' });
+      document.body.append(root);
+    }
+    const oldPanel = root.querySelector('#ys-panel');
+    const scrollTop = oldPanel ? oldPanel.scrollTop : 0;
+
+    const seen = [...channels.keys()].map((id) => ({ id, v: verdictOf(id) })).filter((x) => x.v);
+    const targets = seen.filter((x) => x.v.target && !cfg.allow.includes(x.id));
+    const modeName = { dry: '표시만', hide: '숨김', act: '추천 안함' }[cfg.mode];
+    const counts = [`AI 채널 ${targets.length}`];
+    if (cfg.sent.length) counts.push(`추천 안함 ${cfg.sent.length}`);
+    if (lookupQueue.length) counts.push(`확인 중 ${lookupQueue.length}`);
+    const pill = el_('button', { id: 'ys-pill', textContent: `${modeName}: ${counts.join(', ')}` });
+    pill.addEventListener('click', () => { panelOpen = !panelOpen; render(); });
+
+    const children = [];
+    if (panelOpen) {
+      const button = (text, onClick, on) => { const b = el_('button', { textContent: text, className: on ? 'on' : '' }); b.addEventListener('click', onClick); return b; };
+      const link = (id, name) => el_('a', { href: '/channel/' + id, textContent: name || id, target: '_blank' });
+      const item = (id, name, text, buttons) => el_('div', { className: 'item', title: text }, [link(id, name), el_('span', { textContent: text }), ...buttons]);
+      const modes = [['dry', '표시만'], ['hide', '숨김'], ['act', '숨김과 추천 안함']].map(([mode, label]) =>
+        button(label, () => { cfg.mode = mode; save(); for (const el of document.querySelectorAll('[data-ys]')) clearMark(el); scan(); render(); }, cfg.mode === mode));
+      const sent = sentIds();
+      const list = targets.sort((a, b) => b.v.score - a.v.score).slice(0, 80).map(({ id, v }) => item(id, v.name, ` ${v.score}점: ${v.why.join(', ')}`, [
+        ...(sent.has(id) ? [] : [button('추천 안함', () => queueSend(id))]),
+        button('허용', () => allow(id)),
+      ]));
+      const near = seen.filter((x) => !x.v.target && !x.v.why.includes('구독 중') && x.v.score >= 4).slice(0, 30).map(({ id, v }) => item(id, v.name, ` ${v.score}점: ${v.why.join(', ')}`, []));
+      const recent = cfg.sent.slice(0, 30).map((s) => item(s.id, s.name, ` ${s.score}점`, [button('되돌리기', () => undoSend(s))]));
+      const allowed = cfg.allow.map((id) => item(id, (cfg.cache[id] || {}).name, '', [button('취소', () => unallow(id))]));
+      children.push(el_('div', { id: 'ys-panel' }, [
+        el_('div', { className: 'row title' }, ['YT Sweep', button('닫기', () => { panelOpen = false; render(); })]),
+        el_('div', { className: 'row' }, modes),
+        ...(lastError ? [el_('div', { className: 'row err', textContent: lastError })] : []),
+        el_('h4', { textContent: list.length ? `AI 채널 ${list.length}개` : '아직 찾은 AI 채널이 없습니다' }),
+        ...list,
+        ...(near.length ? [el_('h4', { textContent: `기준에 조금 못 미친 채널 ${near.length}개` }), ...near] : []),
+        ...(recent.length ? [el_('h4', { textContent: `추천 안함 보낸 채널 ${cfg.sent.length}개, 오늘 ${cfg.day === today() ? cfg.dayCount : 0}개` }), ...recent] : []),
+        ...(allowed.length ? [el_('h4', { textContent: `허용 목록 ${allowed.length}개` }), ...allowed] : []),
+      ]));
+    }
+    root.replaceChildren(...children, pill);
+    const panel = root.querySelector('#ys-panel');
+    if (panel) panel.scrollTop = scrollTop;
+  }
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && panelOpen) { panelOpen = false; render(); }
+  });
+
+  let scanTimer = null;
+  const scanSoon = () => { if (!scanTimer) scanTimer = setTimeout(() => { scanTimer = null; scan(); lookupLoop(); }, 300); };
+
+  function start() {
+    new MutationObserver(scanSoon).observe(document.body, { childList: true, subtree: true });
+    setInterval(() => { scan(); lookupLoop(); }, 2000);
+    scan();
+    lookupLoop();
+    render();
+  }
+  if (document.body) start();
+  else document.addEventListener('DOMContentLoaded', start);
+})();

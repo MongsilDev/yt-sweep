@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "YT Sweep",
+  "version": "0.1.0",
+  "description": "유튜브 피드와 쇼츠에서 AI로 찍어내는 채널을 가려 숨기고 채널 추천 안함을 보냅니다.",
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["classifier.js", "parse.js", "content.js"],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    }
+  ]
+}
