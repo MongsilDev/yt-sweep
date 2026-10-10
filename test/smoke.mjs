@@ -46,6 +46,10 @@ assert.deepEqual(card.dontRecommend, { token: 'DR', undo: 'UNDO' });
 const shorts = P.cardInfo({ content: { shortsLockupViewModel: { entityId: 'shorts-shelf-item-x', onTap: { innertubeCommand: { reelWatchEndpoint: { videoId: 'shortvideo1' } } }, overlayMetadata: { primaryText: { content: '쇼츠' } }, menu: menu('관심 없음', 'NI2') } } });
 assert.deepEqual([shorts.videoId, shorts.isShort, shorts.channelId, shorts.notInterested.token], ['shortvideo1', true, null, 'NI2']);
 
+// 쇼츠 응답은 채널과 그 쇼츠의 AI 표시를 함께 줌
+const reel = P.reelInfo({ overlay: { c: { browseEndpoint: { browseId: 'UCbbbbbbbbbbbbbbbbbbbbbb' } } }, panels: { howThisWasMadeSectionViewModel: { t: { content: 'AI로 제작' } } }, menu: menu('채널 추천 안함', 'DR2') });
+assert.deepEqual([reel.channelId, reel.aiLabeled, reel.dontRecommend.token], ['UCbbbbbbbbbbbbbbbbbbbbbb', true, 'DR2']);
+
 // 광고 카드는 건너뜀
 assert.equal(P.cardInfo({ content: { adSlotRenderer: {} } }), null);
 

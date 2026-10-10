@@ -195,21 +195,34 @@
     if (old) old.remove();
   }
 
-  function apply(el, v) {
+  // 채널이 대상이 아니어도 유튜브 AI 표시가 붙은 쇼츠는 그 영상만 처리
+  function videoVerdict(v) {
+    if (cfg.allow.includes(v.channelId)) return null;
     const verdict = verdictOf(v.channelId);
-    if (!verdict || !verdict.target || cfg.allow.includes(v.channelId)) { clearMark(el); return; }
+    if (verdict && verdict.target) return { ...verdict, channel: true };
+    if (v.aiLabeled) return { score: 0, why: ['이 영상에 공식 AI 표시'], channel: false };
+    return null;
+  }
+
+  function apply(el, v) {
+    const verdict = videoVerdict(v);
+    if (!verdict) { clearMark(el); return; }
     if (cfg.mode === 'dry') {
       if (el.dataset.ys !== 'mark') {
         clearMark(el);
         el.dataset.ys = 'mark';
-        const badge = el_('div', { className: 'ys-badge', textContent: `AI 채널 ${verdict.score}점: ${verdict.why.join(', ')}` });
+        const text = verdict.channel ? `AI 채널 ${verdict.score}점: ${verdict.why.join(', ')}` : `AI 영상: ${verdict.why.join(', ')}`;
+        const badge = el_('div', { className: 'ys-badge', textContent: text });
         badge.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); });
         el.prepend(badge);
       }
       return;
     }
     if (el.dataset.ys !== 'hide') { clearMark(el); el.dataset.ys = 'hide'; }
-    if (cfg.mode === 'act') queueSend(v.channelId);
+    if (cfg.mode === 'act') {
+      if (verdict.channel) queueSend(v.channelId);
+      else notInterested(v);
+    }
   }
 
   // 쇼츠 플레이어는 주소의 영상 ID로 판정
@@ -221,9 +234,12 @@
     const v = videos.get(videoId);
     if (!v || !v.channelId) { want('video', videoId); return; }
     want('channel', v.channelId);
-    const verdict = verdictOf(v.channelId);
-    if (!verdict || !verdict.target || cfg.allow.includes(v.channelId) || cfg.mode === 'dry') return;
-    if (cfg.mode === 'act') queueSend(v.channelId);
+    const verdict = videoVerdict(v);
+    if (!verdict || cfg.mode === 'dry') return;
+    if (cfg.mode === 'act') {
+      if (verdict.channel) queueSend(v.channelId);
+      else notInterested(v);
+    }
     if (shortsSkipped !== videoId) {
       shortsSkipped = videoId;
       const next = document.querySelector('#navigation-button-down button, button[aria-label="다음 동영상"]');
@@ -290,6 +306,22 @@
       }
     } finally {
       sendBusy = false;
+    }
+  }
+
+  // 채널은 두고 그 영상에만 관심 없음
+  const notInterestedSent = new Set();
+  async function notInterested(v) {
+    if (!v.notInterested || notInterestedSent.has(v.videoId)) return;
+    notInterestedSent.add(v.videoId);
+    try {
+      await api('feedback', { feedbackTokens: [v.notInterested.token], isFeedbackTokenUnencrypted: false, shouldMerge: false });
+      cfg.notInterestedCount = (cfg.notInterestedCount || 0) + 1;
+      save();
+      renderSoon();
+    } catch (e) {
+      notInterestedSent.delete(v.videoId);
+      lastError = `관심 없음 실패: ${e.message}`;
     }
   }
 
@@ -366,6 +398,7 @@
     const modeName = { dry: '표시만', hide: '숨김', act: '추천 안함' }[cfg.mode];
     const counts = [`AI 채널 ${targets.length}`];
     if (cfg.sent.length) counts.push(`추천 안함 ${cfg.sent.length}`);
+    if (cfg.notInterestedCount) counts.push(`관심 없음 ${cfg.notInterestedCount}`);
     if (lookupQueue.length) counts.push(`확인 중 ${lookupQueue.length}`);
     const pill = el_('button', { id: 'ys-pill', textContent: `${modeName}: ${counts.join(', ')}` });
     pill.addEventListener('click', () => { panelOpen = !panelOpen; render(); });

@@ -105,7 +105,7 @@
     };
   }
 
-  // reel_item_watch 응답에서 쇼츠의 채널과 메뉴 토큰
+  // reel_item_watch 응답에서 쇼츠의 채널, 메뉴 토큰, 그 쇼츠의 AI 표시
   function reelInfo(res) {
     const overlay = res && res.overlay;
     if (!overlay) return null;
@@ -114,6 +114,7 @@
       channelId: browse ? browse.browseEndpoint.browseId : null,
       notInterested: menuToken(res, NOT_INTERESTED),
       dontRecommend: menuToken(res, DONT_RECOMMEND),
+      aiLabeled: aiLabeled(res),
     };
   }
 
