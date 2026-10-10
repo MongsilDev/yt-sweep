@@ -5,6 +5,8 @@
     disclosure: /AI\s*(기술|도구|툴|음성|목소리|나레이션|내레이션|더빙|성우)?\s*(을|를|로|으로)?\s*(활용|이용|사용|제작|생성)|AI로\s*(제작|생성|만든)|(AI|인공지능)\s*(음성|목소리|나레이션|내레이션|더빙)|음성\s*생성|TTS|인공지능(을|으로)\s*(활용|이용|사용)|생성형\s*AI/i,
     notDisclosure: /AI\s*학습/i,
     autoHandle: /-[a-z0-9]{3}$/,
+    // 남의 영상을 잘라 올리는 채널의 면책 문구. 자기 콘텐츠를 지키는 저작권 문의 문구는 제외
+    reuse: /원본\s*출처|저작권은?\s*(각\s*)?(원\s*)?(저작권자|권리자|원작자|제작사)에게|fair\s*use|공정\s*(이용|사용)|저작권자\s*(의\s*)?요청\s*시|copyright\s*disclaimer|문제\s*(가\s*)?(될|되면|시)\s*.{0,10}삭제/i,
   };
 
   // channel: { subscribed, subs, videos, joinedAt, desc, links, handle, recent: [{ ageDays, lenMin, title }], aiHit, aiChecked }
@@ -21,6 +23,7 @@
     const desc = ch.desc || '';
     const m = desc.match(RX.disclosure);
     if (m && !RX.notDisclosure.test(m[0])) add(6, 'AI 고지');
+    if (RX.reuse.test(desc)) add(6, '재업로드 고지');
 
     const ageDays = ch.joinedAt ? (now - ch.joinedAt) / 864e5 : null;
     // 방송사처럼 오래된 대형 채널은 업로드가 많아도 속도 점수를 주지 않음
@@ -39,8 +42,8 @@
     // 클립을 잘라 자막 템플릿으로 찍어내는 채널. 가입 직후부터 하루 한두 개씩 쌓임
     const lifeRate = ageDays ? (ch.videos || 0) / Math.max(ageDays, 1) : 0;
     if (!established && ageDays != null) {
-      if (ageDays < 365 && ch.videos >= 30 && lifeRate >= 0.5) add(6, '신생 양산');
-      else if (ageDays < 730 && ch.videos >= 100 && lifeRate >= 1) add(6, '양산');
+      if (ageDays < 365 && ch.videos >= 30 && lifeRate >= 0.3) add(6, '신생 양산');
+      else if (ageDays < 730 && ch.videos >= 100 && lifeRate >= 0.4) add(6, '양산');
     }
     if (RX.autoHandle.test(ch.handle || '')) add(1, '자동 핸들');
     if (!ch.links) add(1, '링크 없음');

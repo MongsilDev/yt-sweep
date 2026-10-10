@@ -26,6 +26,10 @@ assert.equal(classify({ aiHit: 0, links: 1, joinedAt: days(150), videos: 120, su
 // 막 시작해 영상이 적은 채널과 몇 년째 꾸준히 올리는 채널은 대상 아님
 assert.equal(classify({ aiHit: 0, links: 1, joinedAt: days(10), videos: 8, subs: 0, desc: '', recent: [] }, NOW).target, false);
 assert.equal(classify({ aiHit: 0, links: 2, joinedAt: days(1500), videos: 400, subs: 20000, desc: '', recent: [] }, NOW).target, false);
+// 남의 영상을 쓴다는 면책 문구는 대상, 자기 콘텐츠의 저작권 문의 문구는 아님
+assert.equal(classify({ aiHit: 0, links: 2, joinedAt: days(2000), videos: 150, desc: '모든 영상에는 원본 출처를 표기합니다', recent: [] }, NOW).target, true);
+assert.equal(classify({ aiHit: 0, links: 2, joinedAt: days(2000), videos: 150, desc: 'Fair Use 원칙에 따라 편집합니다', recent: [] }, NOW).target, true);
+assert.equal(classify({ aiHit: 0, links: 2, joinedAt: days(2000), videos: 150, desc: '저작권 관련 문의는 메일로', recent: [] }, NOW).target, false);
 // 같은 속도라도 오래된 대형 채널은 속도 점수 없음
 const broadcaster = classify({ aiHit: 0, links: 6, joinedAt: days(4000), videos: 90000, subs: 4e6, desc: '', recent: recent(30, 0.05, 40) }, NOW);
 assert.equal(broadcaster.target, false);
