@@ -18,7 +18,7 @@
   const RULES = 2;           // 판정 규칙이 바뀌면 올려 캐시를 버림
   const CACHE_MAX = 3000;
   const SENT_MAX = 500;
-  const LOOKUP_GAP_MS = 800;
+  const LOOKUP_GAP_MS = 300;
   const SEND_GAP_MS = 5000;
   const VIDEOS_TAB = 'EgZ2aWRlb3PyBgQKAjoA';
   const SHORTS_TAB = 'EgZzaG9ydHPyBgUKA5oBAA%3D%3D';
