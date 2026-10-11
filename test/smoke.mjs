@@ -22,10 +22,29 @@ assert.equal(classify({ aiHit: 0, links: 1, desc: '사연은 일부 각색될 �
 // 1시간짜리를 하루 세 개씩 올리는 신생 채널
 assert.equal(classify({ aiHit: 0, links: 0, joinedAt: days(60), videos: 180, subs: 5000, desc: '', recent: recent(30, 0.3, 80) }, NOW).target, true);
 // 가입 5개월에 쇼츠 120개인 클립 양산 채널은 긴 영상이 없어도 대상
-assert.equal(classify({ aiHit: 0, links: 1, joinedAt: days(150), videos: 120, subs: 3000, desc: '', recent: [] }, NOW).target, true);
-// 막 시작해 영상이 적은 채널과 몇 년째 꾸준히 올리는 채널은 대상 아님
-assert.equal(classify({ aiHit: 0, links: 1, joinedAt: days(10), videos: 8, subs: 0, desc: '', recent: [] }, NOW).target, false);
+assert.equal(classify({ aiHit: 0, links: 0, joinedAt: days(150), videos: 120, subs: 30000, desc: '', recent: [] }, NOW).target, true);
+// 영상이 적은 신생 채널과 몇 년째 꾸준히 올리는 채널은 대상 아님
+assert.equal(classify({ aiHit: 0, links: 1, joinedAt: days(10), videos: 8, subs: 5000, desc: '', recent: [] }, NOW).target, false);
 assert.equal(classify({ aiHit: 0, links: 2, joinedAt: days(1500), videos: 400, subs: 20000, desc: '', recent: [] }, NOW).target, false);
+// 구독자 1000명 미만은 대상, 구독자 수를 숨긴 채널은 판단하지 않음
+assert.equal(classify({ aiHit: 0, links: 1, subs: 3, videos: 4, desc: '', recent: [] }, NOW).why.includes('소형 채널'), true);
+assert.equal(classify({ aiHit: 0, links: 1, subs: null, videos: 4, desc: '', recent: [] }, NOW).target, false);
+
+// 롱폼 없이 쇼츠만 올리고 영상 설명에 본인 방송이나 문의처가 없는 채널
+const shortsList = Array.from({ length: 20 }, (_, i) => ({ videoId: 's' + i, title: '반전 ' + i }));
+const shortsOnly = { aiHit: 0, links: 1, subs: 30000, joinedAt: days(3000), videos: 200, desc: '', recent: [], shorts: shortsList };
+assert.equal(classify({ ...shortsOnly, videoDescs: ['#shorts', ''] }, NOW).target, true);
+assert.equal(classify({ ...shortsOnly, videoDescs: ['치지직 방송 매일 저녁 8시'] }, NOW).target, false);
+// 영상 설명이 남의 핸들뿐이거나 출처 항목이면 대상, 자기 핸들이나 본인 방송 안내가 함께 있으면 아님
+const longform = { aiHit: 0, links: 2, subs: 50000, joinedAt: days(3000), videos: 100, desc: '', recent: recent(10, 30, 10) };
+assert.equal(classify({ ...longform, videoDescs: ['@someone.original'] }, NOW).why.includes('출처 표기'), true);
+assert.equal(classify({ ...longform, handle: 'me', videoDescs: ['Credits : animation @me'] }, NOW).why.includes('출처 표기'), false);
+assert.equal(classify({ ...longform, videoDescs: ['출처: incompetech.com\n치지직 방송 안내'] }, NOW).why.includes('출처 표기'), false);
+// 오래된 채널도 링크와 운영자 정보 없이 하루 0.3개 넘게 쌓으면 대상
+assert.equal(classify({ aiHit: 0, links: 0, subs: 55000, joinedAt: days(900), videos: 1700, desc: '', recent: recent(10, 1, 2), videoDescs: ['#야구'] }, NOW).target, true);
+// 자기 콘텐츠 보호 문구 속 AI, 원본 출처 언급은 고지로 보지 않음
+assert.equal(classify({ aiHit: 0, links: 3, desc: '무단 모방 및 AI를 활용해 복제하는 행위는 위반입니다', recent: [] }, NOW).why.includes('AI 고지'), false);
+assert.equal(classify({ aiHit: 0, links: 3, desc: '영상 내 원본 출처 표기 필수', recent: [] }, NOW).why.includes('재업로드 고지'), false);
 // 남의 영상을 쓴다는 면책 문구는 대상, 자기 콘텐츠의 저작권 문의 문구는 아님
 assert.equal(classify({ aiHit: 0, links: 2, joinedAt: days(2000), videos: 150, desc: '모든 영상에는 원본 출처를 표기합니다', recent: [] }, NOW).target, true);
 assert.equal(classify({ aiHit: 0, links: 2, joinedAt: days(2000), videos: 150, desc: 'Fair Use 원칙에 따라 편집합니다', recent: [] }, NOW).target, true);
@@ -54,6 +73,11 @@ assert.deepEqual(card.dontRecommend, { token: 'DR', undo: 'UNDO' });
 // 쇼츠 선반 카드는 채널 없이 영상 ID와 관심 없음만
 const shorts = P.cardInfo({ content: { shortsLockupViewModel: { entityId: 'shorts-shelf-item-x', onTap: { innertubeCommand: { reelWatchEndpoint: { videoId: 'shortvideo1' } } }, overlayMetadata: { primaryText: { content: '쇼츠' } }, menu: menu('관심 없음', 'NI2') } } });
 assert.deepEqual([shorts.videoId, shorts.isShort, shorts.channelId, shorts.notInterested.token], ['shortvideo1', true, null, 'NI2']);
+
+// 쇼츠 탭과 영상 설명
+assert.deepEqual(P.shortsPage({ contents: { a: [{ shortsLockupViewModel: { onTap: { innertubeCommand: { reelWatchEndpoint: { videoId: 'v1' } } }, overlayMetadata: { primaryText: { content: '제목' } } } }] } }), [{ videoId: 'v1', title: '제목' }]);
+assert.equal(P.videoDesc({ x: { attributedDescription: { content: '게임명 : 레이븐2' } } }), '게임명 : 레이븐2');
+assert.equal(P.channelAbout({ x: { aboutChannelViewModel: { description: '' } } }).subs, null);
 
 // 쇼츠 응답은 채널과 그 쇼츠의 AI 표시를 함께 줌
 const reel = P.reelInfo({ overlay: { c: { browseEndpoint: { browseId: 'UCbbbbbbbbbbbbbbbbbbbbbb' } } }, panels: { howThisWasMadeSectionViewModel: { t: { content: 'AI로 제작' } } }, menu: menu('채널 추천 안함', 'DR2') });

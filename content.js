@@ -15,6 +15,7 @@
     dailyCap: 200,
   };
   const CACHE_MS = 14 * 864e5;
+  const RULES = 2;           // 판정 규칙이 바뀌면 올려 캐시를 버림
   const CACHE_MAX = 3000;
   const SENT_MAX = 500;
   const LOOKUP_GAP_MS = 800;
@@ -119,7 +120,7 @@
 
   const verdictOf = (channelId) => {
     const c = cfg.cache[channelId];
-    return c && Date.now() - c.at < CACHE_MS ? c : null;
+    return c && c.rules === RULES && Date.now() - c.at < CACHE_MS ? c : null;
   };
 
   // 채널 판정에 쓰는 요청 4~5번. 채널마다 한 번만 하고 결과를 저장
@@ -131,21 +132,22 @@
       about = P.channelAbout(await api('browse', { continuation: page.aboutToken }));
       await sleep(LOOKUP_GAP_MS);
     }
-    let sample = page.recent.slice(0, 2).map((v) => v.videoId);
-    if (!sample.length) {
-      sample = P.shortsIds(await api('browse', { browseId: id, params: SHORTS_TAB })).slice(0, 2);
-      await sleep(LOOKUP_GAP_MS);
-    }
+    const shorts = P.shortsPage(await api('browse', { browseId: id, params: SHORTS_TAB }));
+    await sleep(LOOKUP_GAP_MS);
+    const sample = (page.recent.length ? page.recent : shorts).slice(0, 2).map((v) => v.videoId);
     let aiHit = 0;
+    const videoDescs = [];
     for (const videoId of sample) {
-      if (P.aiLabeled(await api('next', { videoId }))) aiHit++;
+      const res = await api('next', { videoId });
+      if (P.aiLabeled(res)) aiHit++;
+      videoDescs.push(P.videoDesc(res));
       await sleep(LOOKUP_GAP_MS);
     }
-    const ch = { ...(about || {}), subscribed: page.subscribed, recent: page.recent, aiHit, aiChecked: sample.length };
+    const ch = { ...(about || {}), subscribed: page.subscribed, recent: page.recent, shorts, videoDescs, aiHit, aiChecked: sample.length };
     const result = classify(ch, Date.now());
     const known = channels.get(id);
     cfg.cache[id] = {
-      at: Date.now(), score: result.score, why: result.why, target: result.target,
+      at: Date.now(), rules: RULES, score: result.score, why: result.why, target: result.target,
       name: (known && known.name) || ch.handle || id, handle: ch.handle || '',
     };
     save();
@@ -211,7 +213,7 @@
       if (el.dataset.ys !== 'mark') {
         clearMark(el);
         el.dataset.ys = 'mark';
-        const text = verdict.channel ? `AI 채널 ${verdict.score}점: ${verdict.why.join(', ')}` : `AI 영상: ${verdict.why.join(', ')}`;
+        const text = verdict.channel ? `양산 채널 ${verdict.score}점: ${verdict.why.join(', ')}` : `AI 영상: ${verdict.why.join(', ')}`;
         const badge = el_('div', { className: 'ys-badge', textContent: text });
         badge.addEventListener('click', (event) => { event.preventDefault(); event.stopPropagation(); });
         el.prepend(badge);
@@ -396,7 +398,7 @@
     const seen = [...channels.keys()].map((id) => ({ id, v: verdictOf(id) })).filter((x) => x.v);
     const targets = seen.filter((x) => x.v.target && !cfg.allow.includes(x.id));
     const modeName = { dry: '표시만', hide: '숨김', act: '추천 안함' }[cfg.mode];
-    const counts = [`AI 채널 ${targets.length}`];
+    const counts = [`양산 채널 ${targets.length}`];
     if (cfg.sent.length) counts.push(`추천 안함 ${cfg.sent.length}`);
     if (cfg.notInterestedCount) counts.push(`관심 없음 ${cfg.notInterestedCount}`);
     if (lookupQueue.length) counts.push(`확인 중 ${lookupQueue.length}`);
@@ -422,7 +424,7 @@
         el_('div', { className: 'row title' }, ['YT Sweep', button('닫기', () => { panelOpen = false; render(); })]),
         el_('div', { className: 'row' }, modes),
         ...(lastError ? [el_('div', { className: 'row err', textContent: lastError })] : []),
-        el_('h4', { textContent: list.length ? `AI 채널 ${list.length}개` : '아직 찾은 AI 채널이 없습니다' }),
+        el_('h4', { textContent: list.length ? `양산 채널 ${list.length}개` : '아직 찾은 양산 채널이 없습니다' }),
         ...list,
         ...(near.length ? [el_('h4', { textContent: `기준에 조금 못 미친 채널 ${near.length}개` }), ...near] : []),
         ...(recent.length ? [el_('h4', { textContent: `추천 안함 보낸 채널 ${cfg.sent.length}개, 오늘 ${cfg.day === today() ? cfg.dayCount : 0}개` }), ...recent] : []),

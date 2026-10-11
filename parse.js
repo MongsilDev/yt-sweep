@@ -147,14 +147,23 @@
       desc: a.description || '',
       links: (a.links || []).length,
       handle: decodeURIComponent(String(a.canonicalChannelUrl || '').split('@')[1] || ''),
-      subs: parseCount(a.subscriberCountText),
+      subs: a.subscriberCountText ? parseCount(a.subscriberCountText) : null,
       videos: parseCount(a.videoCountText),
     };
   }
 
-  // 쇼츠 탭 browse 응답에서 영상 ID
-  function shortsIds(res) {
-    return findAll(res && res.contents, (x) => x.reelWatchEndpoint).map((x) => x.reelWatchEndpoint.videoId);
+  // 쇼츠 탭 browse 응답의 영상 ID와 제목
+  function shortsPage(res) {
+    return findAll(res && res.contents, (x) => x.shortsLockupViewModel).map(({ shortsLockupViewModel: v }) => {
+      const ep = find(v, (x) => x.reelWatchEndpoint);
+      return { videoId: ep ? ep.reelWatchEndpoint.videoId : null, title: textOf((v.overlayMetadata || {}).primaryText) };
+    }).filter((v) => v.videoId);
+  }
+
+  // next 응답의 영상 설명
+  function videoDesc(res) {
+    const d = find(res, (x) => x.attributedDescription && typeof x.attributedDescription.content === 'string');
+    return d ? d.attributedDescription.content : '';
   }
 
   // next 응답의 콘텐츠 생성 방식 패널, AI 제작이나 변경 영상 표시
@@ -163,7 +172,7 @@
     return !!h && strings(h).some((t) => /변경되었거나|새롭게 생성|AI로 제작/.test(t));
   }
 
-  const api = { find, findAll, textOf, strings, relDays, parseCount, parseJoined, menuToken, cardInfo, reelInfo, channelPage, channelAbout, shortsIds, aiLabeled };
+  const api = { find, findAll, textOf, strings, relDays, parseCount, parseJoined, menuToken, cardInfo, reelInfo, channelPage, channelAbout, shortsPage, videoDesc, aiLabeled };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.__ytSweep = Object.assign(root.__ytSweep || {}, { parse: api });
 })(typeof window !== 'undefined' ? window : globalThis);
