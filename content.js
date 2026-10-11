@@ -123,27 +123,32 @@
     return c && c.rules === RULES && Date.now() - c.at < CACHE_MS ? c : null;
   };
 
-  // 채널 판정에 쓰는 요청 4~5번. 채널마다 한 번만 하고 결과를 저장
+  // 채널 판정에 쓰는 요청 4~6번. 채널마다 한 번만 하고 결과를 저장
   async function lookupChannel(id) {
     const page = P.channelPage(await api('browse', { browseId: id, params: VIDEOS_TAB }));
     await sleep(LOOKUP_GAP_MS);
-    let about = null;
-    if (page.aboutToken) {
-      about = P.channelAbout(await api('browse', { continuation: page.aboutToken }));
+    let ch = { subscribed: page.subscribed };
+    if (!page.subscribed) {
+      let about = null;
+      if (page.aboutToken) {
+        about = P.channelAbout(await api('browse', { continuation: page.aboutToken }));
+        await sleep(LOOKUP_GAP_MS);
+      }
+      const shorts = P.shortsPage(await api('browse', { browseId: id, params: SHORTS_TAB }));
       await sleep(LOOKUP_GAP_MS);
+      // AI 표시는 앞의 두 영상으로 셈. 롱폼 채널은 쇼츠 하나의 설명도 함께 봄
+      const sample = (page.recent.length ? page.recent : shorts).slice(0, 2).map((v) => v.videoId);
+      if (page.recent.length && shorts.length) sample.push(shorts[0].videoId);
+      let aiHit = 0;
+      const videoDescs = [];
+      for (const [i, videoId] of sample.entries()) {
+        const res = await api('next', { videoId });
+        if (i < 2 && P.aiLabeled(res)) aiHit++;
+        videoDescs.push(P.videoDesc(res));
+        await sleep(LOOKUP_GAP_MS);
+      }
+      ch = { ...(about || {}), ...ch, recent: page.recent, shorts, videoDescs, aiHit, aiChecked: Math.min(2, sample.length) };
     }
-    const shorts = P.shortsPage(await api('browse', { browseId: id, params: SHORTS_TAB }));
-    await sleep(LOOKUP_GAP_MS);
-    const sample = (page.recent.length ? page.recent : shorts).slice(0, 2).map((v) => v.videoId);
-    let aiHit = 0;
-    const videoDescs = [];
-    for (const videoId of sample) {
-      const res = await api('next', { videoId });
-      if (P.aiLabeled(res)) aiHit++;
-      videoDescs.push(P.videoDesc(res));
-      await sleep(LOOKUP_GAP_MS);
-    }
-    const ch = { ...(about || {}), subscribed: page.subscribed, recent: page.recent, shorts, videoDescs, aiHit, aiChecked: sample.length };
     const result = classify(ch, Date.now());
     const known = channels.get(id);
     cfg.cache[id] = {
