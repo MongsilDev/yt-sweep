@@ -42,6 +42,9 @@ assert.equal(classify({ ...longform, handle: 'me', videoDescs: ['Credits : anima
 assert.equal(classify({ ...longform, videoDescs: ['출처: incompetech.com\n치지직 방송 안내'] }, NOW).why.includes('출처 표기'), false);
 // 오래된 채널도 링크와 운영자 정보 없이 하루 0.3개 넘게 쌓으면 대상
 assert.equal(classify({ aiHit: 0, links: 0, subs: 55000, joinedAt: days(900), videos: 1700, desc: '', recent: recent(10, 1, 2), videoDescs: ['#야구'] }, NOW).target, true);
+// 매일 올려도 채널 설명에 이메일이 있거나 영상 설명에 본인 방송 안내가 있으면 다작 점수 없음
+assert.equal(classify({ aiHit: 0, links: 0, subs: 21000, joinedAt: days(2000), videos: 934, desc: '이메일 : me@gmail.com', recent: recent(10, 1, 1), videoDescs: ['#롤'] }, NOW).target, false);
+assert.equal(classify({ aiHit: 0, links: 1, subs: 1800, joinedAt: days(1270), videos: 1003, desc: '', recent: recent(10, 1, 10), videoDescs: ['Twitch / me'] }, NOW).target, false);
 // 자기 콘텐츠 보호 문구 속 AI, 원본 출처 언급은 고지로 보지 않음
 assert.equal(classify({ aiHit: 0, links: 3, desc: '무단 모방 및 AI를 활용해 복제하는 행위는 위반입니다', recent: [] }, NOW).why.includes('AI 고지'), false);
 assert.equal(classify({ aiHit: 0, links: 3, desc: '영상 내 원본 출처 표기 필수', recent: [] }, NOW).why.includes('재업로드 고지'), false);

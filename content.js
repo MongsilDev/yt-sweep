@@ -15,7 +15,7 @@
     dailyCap: 200,
   };
   const CACHE_MS = 14 * 864e5;
-  const RULES = 2;           // 판정 규칙이 바뀌면 올려 캐시를 버림
+  const RULES = 3;           // 판정 규칙이 바뀌면 올려 캐시를 버림
   const CACHE_MAX = 3000;
   const SENT_MAX = 500;
   const LOOKUP_GAP_MS = 300;

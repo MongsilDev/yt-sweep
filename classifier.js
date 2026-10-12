@@ -13,6 +13,7 @@
     // 영상 설명의 본인 방송, 연락처, 판매처. 있으면 사람이 운영하는 채널로 봄
     // 자기 콘텐츠를 지키는 문장. 이 줄에 걸린 AI, 출처 문구는 고지로 보지 않음
     protect: /무단|금지|금합|법적|위반|불가|필수|간주|퍼가/,
+    email: /[\w.+-]+@[\w-]+\.[a-z]{2,}/i,
     affiliate: /link\.coupang\.com|쿠팡\s*파트너스/i,
     self: /치지직|chzzk|twitch|트위치|아프리카|soop|멤버십|membership|instagram|인스타|discord|디스코드|비즈니스|business|문의|협찬|광고|후원|스토어|store|구매/i,
   };
@@ -37,6 +38,7 @@
     const videoDescs = ch.videoDescs || [];
     const handle = (ch.handle || '').toLowerCase();
     const selfInDesc = videoDescs.some((d) => RX.self.test(d));
+    const self = ch.links > 0 || selfInDesc || RX.email.test(ch.desc || '');
     const credited = videoDescs.some((d) => (RX.credit.test(d) || RX.creditLine.test(d)) && !(handle && d.toLowerCase().includes('@' + handle)));
     if (credited && !selfInDesc) add(6, '출처 표기');
     if ([ch.desc || '', ...videoDescs].some((d) => RX.affiliate.test(d))) add(4, '쿠팡 파트너스');
@@ -46,7 +48,7 @@
 
     const shortsOnly = !(ch.recent || []).length && (ch.shorts || []).length >= 10;
     if (shortsOnly && !selfInDesc) add(6, '쇼츠만 올림');
-    else if (!ch.links && !selfInDesc) add(2, '운영자 정보 없음');
+    else if (!self) add(2, '운영자 정보 없음');
 
     const ageDays = ch.joinedAt ? (now - ch.joinedAt) / 864e5 : null;
     // 방송사처럼 오래된 대형 채널은 업로드가 많아도 속도 점수를 주지 않음
@@ -61,11 +63,11 @@
       else if (rate >= 1.5 && avgLen >= 20) add(4, '장편 다작');
     }
 
-    // 가입 후 하루 0.3개 넘게 쌓는 채널. 운영자 정보 없음과 겹쳐야 대상
+    // 가입 후 하루 0.3개 넘게 쌓는 채널. 링크, 이메일, 본인 방송 안내가 있으면 사람이 매일 올리는 경우라 제외
     const lifeRate = ageDays ? (ch.videos || 0) / Math.max(ageDays, 1) : 0;
     if (!established && ageDays != null && ch.videos >= 30) {
       if (lifeRate >= 3) add(6, '초다작');
-      else if (lifeRate >= 0.3) add(4, '다작');
+      else if (lifeRate >= 0.3 && !self) add(4, '다작');
     }
     if (RX.autoHandle.test(ch.handle || '')) add(1, '자동 핸들');
 
