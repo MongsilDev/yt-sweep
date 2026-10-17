@@ -407,6 +407,7 @@
     .ys-badge button { flex: none; font: inherit; color: #3ea6ff; background: none; border: 0; padding: 0 4px; cursor: pointer; }
     .ys-badge button:hover { text-decoration: underline; }
     .ys-badge button:disabled { color: #aaa; cursor: default; text-decoration: none; }
+    #ys-root[hidden] { display: none !important; }
     #ys-root { position: fixed; left: 12px; bottom: 12px; z-index: 9999; font: 13px/1.4 system-ui, sans-serif; color: #f1f1f1; }
     #ys-root button { font: inherit; color: inherit; background: #272727; border: 1px solid #3f3f3f; border-radius: 6px; padding: 2px 8px; cursor: pointer; }
     #ys-root button.on { background: #3ea6ff; border-color: #3ea6ff; color: #0f0f0f; }
@@ -433,6 +434,10 @@
       document.head.append(el_('style', { textContent: CSS }));
       root = el_('div', { id: 'ys-root' });
       document.body.append(root);
+      // 동영상 전체화면 위에 버튼이 남지 않게 숨김
+      const syncFullscreen = () => { root.hidden = !!document.fullscreenElement; };
+      document.addEventListener('fullscreenchange', syncFullscreen);
+      syncFullscreen();
     }
     const oldPanel = root.querySelector('#ys-panel');
     const scrollTop = oldPanel ? oldPanel.scrollTop : 0;
