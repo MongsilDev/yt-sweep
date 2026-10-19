@@ -416,6 +416,7 @@
     #ys-panel h4 { margin: 10px 0 4px; font-size: 12px; color: #aaa; font-weight: 600; }
     #ys-panel .row { display: flex; gap: 6px; align-items: center; margin: 4px 0; flex-wrap: wrap; }
     #ys-panel .title { justify-content: space-between; font-weight: 600; }
+    #ys-panel .msg { display: block; }
     #ys-panel .item { display: flex; gap: 6px; align-items: baseline; padding: 3px 0; border-top: 1px solid #272727; }
     #ys-panel .item span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #ys-panel a { color: #f1f1f1; font-weight: 600; text-decoration: none; }
@@ -427,6 +428,7 @@
     for (const child of children) node.append(child);
     return node;
   };
+  const lines = (text) => text.split(/(?<=[.?!])\s+/).flatMap((line, i) => (i ? [el_('br'), line] : [line]));
 
   function render() {
     if (!document.body) return;
@@ -475,7 +477,7 @@
       children.push(el_('div', { id: 'ys-panel' }, [
         el_('div', { className: 'row title' }, ['YT Sweep', button('닫기', () => { panelOpen = false; render(); })]),
         el_('div', { className: 'row' }, modes),
-        ...(lastError ? [el_('div', { className: 'row err', textContent: lastError })] : []),
+        ...(lastError ? [el_('div', { className: 'row msg err' }, lines(lastError))] : []),
         el_('h4', { textContent: list.length ? `걸린 채널 ${targets.length}개` : '아직 걸린 채널이 없습니다' }),
         ...list,
         ...(near.length ? [el_('h4', { textContent: `기준에 조금 못 미친 채널 ${near.length}개` }), ...near] : []),
