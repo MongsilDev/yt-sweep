@@ -125,7 +125,7 @@
     return c && c.rules === RULES && Date.now() - c.at < CACHE_MS ? c : null;
   };
 
-  // 채널 판정에 쓰는 요청 4~6번. 채널마다 한 번만 하고 결과를 저장
+  // 채널 판정에 쓰는 요청 최대 6번. 채널마다 한 번만 하고 결과를 저장
   async function lookupChannel(id) {
     const page = P.channelPage(await api('browse', { browseId: id, params: VIDEOS_TAB }));
     await sleep(LOOKUP_GAP_MS);

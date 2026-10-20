@@ -19,7 +19,7 @@ assert.equal(classify({ aiHit: 0, links: 1, desc: '본 영상은 AI 기술을 �
 // 저작권 문구와 각색 고지는 AI 고지로 판정하지 않음
 assert.equal(classify({ aiHit: 0, links: 1, desc: '무단 전재, AI 학습 및 활용 금지', recent: [] }, NOW).why.includes('AI 고지'), false);
 assert.equal(classify({ aiHit: 0, links: 1, desc: '사연은 일부 각색될 수 있습니다', recent: [] }, NOW).why.includes('AI 고지'), false);
-// 1시간짜리를 하루 세 개씩 올리는 신생 채널
+// 80분짜리를 하루 세 개씩 올리는 신생 채널
 assert.equal(classify({ aiHit: 0, links: 0, joinedAt: days(60), videos: 180, subs: 5000, desc: '', recent: recent(30, 0.3, 80) }, NOW).target, true);
 // 가입 5개월에 쇼츠 120개인 클립 양산 채널은 긴 영상이 없어도 대상
 assert.equal(classify({ aiHit: 0, links: 0, joinedAt: days(150), videos: 120, subs: 30000, desc: '', recent: [] }, NOW).target, true);

@@ -63,7 +63,7 @@
       else if (rate >= 1.5 && avgLen >= 20) add(4, '장편 다작');
     }
 
-    // 가입 후 하루 0.3개 이상 올리는 채널. 링크, 이메일, 본인 방송 안내가 있으면 사람이 매일 올리는 경우라 제외
+    // 가입 후 하루 0.3개 이상 올리는 채널. 하루 3개 미만이고 링크, 이메일, 본인 방송 안내가 있으면 사람이 매일 올리는 경우라 제외
     const lifeRate = ageDays ? (ch.videos || 0) / Math.max(ageDays, 1) : 0;
     if (!established && ageDays != null && ch.videos >= 30) {
       if (lifeRate >= 3) add(6, '초다작');
