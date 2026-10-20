@@ -10,13 +10,13 @@
     mode: 'dry',          // dry 표시만, hide 숨김, act 숨김과 추천 안함 전송
     allow: [],            // 채널 ID 허용 목록
     sent: [],             // 추천 안함을 보낸 채널 기록
-    log: [],              // 피드에서 걸린 채널 기록. 새로고침해도 패널에 남김
+    log: [],              // 피드에서 대상으로 판정한 채널 기록. 새로고침해도 패널에 남김
     cache: {},            // 채널 ID별 판정
     day: '', dayCount: 0,
     dailyCap: 200,
   };
   const CACHE_MS = 14 * 864e5;
-  const RULES = 3;           // 판정 규칙이 바뀌면 올려 캐시를 버림
+  const RULES = 3;           // 판정 규칙이 바뀌면 이 값을 올려 캐시를 버림
   const CACHE_MAX = 3000;
   const SENT_MAX = 500;
   const LOG_MAX = 500;
@@ -40,7 +40,7 @@
   };
   window.addEventListener('storage', (event) => { if (event.key === KEY) Object.assign(cfg, loadConfig()); });
 
-  // innertube 요청. 로그인 요청은 SAPISIDHASH 인증이 있어야 추천 안함 메뉴가 옴
+  // innertube 요청. 로그인 요청은 SAPISIDHASH 인증이 있어야 응답에 추천 안함 메뉴가 포함됨
   const yc = () => (window.ytcfg && window.ytcfg.data_) || {};
   async function authHeader() {
     const sapisid = (document.cookie.match(/(?:^|; )(?:SAPISID|__Secure-3PAPISID)=([^;]+)/) || [])[1];
@@ -138,7 +138,7 @@
       }
       const shorts = P.shortsPage(await api('browse', { browseId: id, params: SHORTS_TAB }));
       await sleep(LOOKUP_GAP_MS);
-      // AI 표시는 앞의 두 영상으로 셈. 롱폼 채널은 쇼츠 하나의 설명도 함께 봄
+      // AI 표시는 앞의 두 영상으로 셈. 롱폼 채널은 쇼츠 하나의 설명도 함께 확인
       const sample = (page.recent.length ? page.recent : shorts).slice(0, 2).map((v) => v.videoId);
       if (page.recent.length && shorts.length) sample.push(shorts[0].videoId);
       let aiHit = 0;
@@ -205,7 +205,7 @@
     if (old) old.remove();
   }
 
-  // 채널이 대상이 아니어도 유튜브 AI 표시가 붙은 쇼츠는 그 영상만 처리
+  // 채널이 대상이 아니어도 유튜브 AI 표시가 있는 쇼츠는 그 영상만 처리
   function videoVerdict(v) {
     if (cfg.allow.includes(v.channelId)) return null;
     const verdict = verdictOf(v.channelId);
@@ -231,7 +231,7 @@
     const send = verdict.channel && v.dontRecommend ? el_('button', { textContent: '추천 안함' }) : null;
     const ok = verdict.channel ? el_('button', { textContent: '허용' }) : null;
     const badge = el_('div', { className: 'ys-badge', title: text }, [el_('span', { textContent: text }), ...[send, ok].filter(Boolean)]);
-    // 카드 링크로 넘어가지 않게 막음
+    // 배지를 눌러도 카드 링크로 이동하지 않게 기본 동작과 전파를 취소
     badge.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -462,7 +462,7 @@
       const modes = [['dry', '표시만'], ['hide', '숨김'], ['act', '숨김과 추천 안함']].map(([mode, label]) =>
         button(label, () => { cfg.mode = mode; save(); for (const el of document.querySelectorAll('[data-ys]')) clearMark(el); scan(); render(); }, cfg.mode === mode));
       const sent = sentIds();
-      // 추천 안함 토큰은 이번 페이지에서 본 카드에만 있음
+      // 추천 안함 토큰은 이번 페이지에서 읽은 카드에만 있음
       const list = targets.slice(0, 100).map((e) => {
         const state = sent.has(e.id) ? ', 추천 안함 보냄' : sendQueue.includes(e.id) ? ', 보내는 중' : '';
         const canSend = !sent.has(e.id) && !sendQueue.includes(e.id) && tokensFor(e.id);

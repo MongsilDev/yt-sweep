@@ -16,7 +16,7 @@ assert.equal(classify({ aiHit: 2, links: 3, desc: '', recent: [] }, NOW).target,
 assert.equal(classify({ aiHit: 1, links: 3, desc: '', recent: [] }, NOW).target, false);
 // 채널 설명의 AI 고지
 assert.equal(classify({ aiHit: 0, links: 1, desc: '본 영상은 AI 기술을 활용한 창작 사연입니다', recent: [] }, NOW).target, true);
-// 저작권 문구와 각색 고지는 AI 고지로 보지 않음
+// 저작권 문구와 각색 고지는 AI 고지로 판정하지 않음
 assert.equal(classify({ aiHit: 0, links: 1, desc: '무단 전재, AI 학습 및 활용 금지', recent: [] }, NOW).why.includes('AI 고지'), false);
 assert.equal(classify({ aiHit: 0, links: 1, desc: '사연은 일부 각색될 수 있습니다', recent: [] }, NOW).why.includes('AI 고지'), false);
 // 1시간짜리를 하루 세 개씩 올리는 신생 채널
@@ -40,12 +40,12 @@ const longform = { aiHit: 0, links: 2, subs: 50000, joinedAt: days(3000), videos
 assert.equal(classify({ ...longform, videoDescs: ['@someone.original'] }, NOW).why.includes('출처 표기'), true);
 assert.equal(classify({ ...longform, handle: 'me', videoDescs: ['Credits : animation @me'] }, NOW).why.includes('출처 표기'), false);
 assert.equal(classify({ ...longform, videoDescs: ['출처: incompetech.com\n치지직 방송 안내'] }, NOW).why.includes('출처 표기'), false);
-// 오래된 채널도 링크와 운영자 정보 없이 하루 0.3개 넘게 쌓으면 대상
+// 오래된 채널도 링크와 운영자 정보 없이 하루 0.3개 이상 올리면 대상
 assert.equal(classify({ aiHit: 0, links: 0, subs: 55000, joinedAt: days(900), videos: 1700, desc: '', recent: recent(10, 1, 2), videoDescs: ['#야구'] }, NOW).target, true);
 // 매일 올려도 채널 설명에 이메일이 있거나 영상 설명에 본인 방송 안내가 있으면 다작 점수 없음
 assert.equal(classify({ aiHit: 0, links: 0, subs: 21000, joinedAt: days(2000), videos: 934, desc: '이메일 : me@gmail.com', recent: recent(10, 1, 1), videoDescs: ['#롤'] }, NOW).target, false);
 assert.equal(classify({ aiHit: 0, links: 1, subs: 1800, joinedAt: days(1270), videos: 1003, desc: '', recent: recent(10, 1, 10), videoDescs: ['Twitch / me'] }, NOW).target, false);
-// 자기 콘텐츠 보호 문구 속 AI, 원본 출처 언급은 고지로 보지 않음
+// 자기 콘텐츠 보호 문구 속 AI, 원본 출처 언급은 고지로 판정하지 않음
 assert.equal(classify({ aiHit: 0, links: 3, desc: '무단 모방 및 AI를 활용해 복제하는 행위는 위반입니다', recent: [] }, NOW).why.includes('AI 고지'), false);
 assert.equal(classify({ aiHit: 0, links: 3, desc: '영상 내 원본 출처 표기 필수', recent: [] }, NOW).why.includes('재업로드 고지'), false);
 // 남의 영상을 쓴다는 면책 문구는 대상, 자기 콘텐츠의 저작권 문의 문구는 아님
