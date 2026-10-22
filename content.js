@@ -360,7 +360,7 @@
       renderSoon();
     } catch (e) {
       notInterestedSent.delete(v.videoId);
-      lastError = `관심 없음 실패: ${e.message}`;
+      lastError = `관심 없음 실패: ${e.message}. 잠시 뒤 다시 시도합니다.`;
     }
   }
 
@@ -372,7 +372,7 @@
       cfg.sent = cfg.sent.filter((s) => s !== entry);
       allow(entry.id);
     } catch (e) {
-      lastError = `되돌리기 실패: ${e.message}`;
+      lastError = `되돌리기 실패: ${e.message}. 유튜브 기록에서 직접 지워주세요.`;
       renderSoon();
     }
   }
@@ -446,8 +446,8 @@
 
     const seen = [...channels.keys()].map((id) => ({ id, v: verdictOf(id) })).filter((x) => x.v);
     const targets = cfg.log.filter((e) => !cfg.allow.includes(e.id));
-    const modeName = { dry: '표시만', hide: '숨김', act: '추천 안함' }[cfg.mode];
-    const counts = [`걸린 채널 ${targets.length}`];
+    const modeName = { dry: '표시만', hide: '숨김', act: '숨김과 추천 안함' }[cfg.mode];
+    const counts = [`대상 채널 ${targets.length}`];
     if (cfg.sent.length) counts.push(`추천 안함 ${cfg.sent.length}`);
     if (cfg.notInterestedCount) counts.push(`관심 없음 ${cfg.notInterestedCount}`);
     if (lookupQueue.length) counts.push(`확인 중 ${lookupQueue.length}`);
@@ -478,7 +478,7 @@
         el_('div', { className: 'row title' }, ['YT Sweep', button('닫기', () => { panelOpen = false; render(); })]),
         el_('div', { className: 'row' }, modes),
         ...(lastError ? [el_('div', { className: 'row msg err' }, lines(lastError))] : []),
-        el_('h4', { textContent: list.length ? `걸린 채널 ${targets.length}개` : '아직 걸린 채널이 없습니다' }),
+        el_('h4', { textContent: list.length ? `대상 채널 ${targets.length}개` : '아직 대상 채널이 없습니다' }),
         ...list,
         ...(near.length ? [el_('h4', { textContent: `기준에 조금 못 미친 채널 ${near.length}개` }), ...near] : []),
         ...(recent.length ? [el_('h4', { textContent: `추천 안함 보낸 채널 ${cfg.sent.length}개, 오늘 ${cfg.day === today() ? cfg.dayCount : 0}개` }), ...recent] : []),

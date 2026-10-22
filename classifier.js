@@ -59,7 +59,7 @@
       const rate = recent.length / span;
       const lens = recent.map((v) => v.lenMin).filter((x) => x != null);
       const avgLen = lens.length ? lens.reduce((a, b) => a + b, 0) / lens.length : 0;
-      if (rate >= 3 && avgLen >= 30) add(6, '초인적 장편 다작');
+      if (rate >= 3 && avgLen >= 30) add(6, '장편 초다작');
       else if (rate >= 1.5 && avgLen >= 20) add(4, '장편 다작');
     }
 
